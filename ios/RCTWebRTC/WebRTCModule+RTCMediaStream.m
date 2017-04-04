@@ -78,8 +78,8 @@ typedef void (^NavigatorUserMediaSuccessCallback)(RTCMediaStream *mediaStream);
 
 // TODO: Use RCTConvert for constraints ...
 RCT_EXPORT_METHOD(getUserMedia:(NSDictionary *)constraints
-               successCallback:(RCTResponseSenderBlock)successCallback
-                 errorCallback:(RCTResponseSenderBlock)errorCallback) {
+               resolver:(RCTPromiseResolveBlock)resolve
+                 rejecter:(RCTPromiseRejectBlock)reject) {
   // Initialize RTCMediaStream with a unique label in order to allow multiple
   // RTCMediaStream instances initialized by multiple getUserMedia calls to be
   // added to 1 RTCPeerConnection instance. As suggested by
@@ -112,10 +112,10 @@ RCT_EXPORT_METHOD(getUserMedia:(NSDictionary *)constraints
         }
       }
       self.mediaStreams[mediaStreamId] = mediaStream;
-      successCallback(@[ mediaStreamId, tracks ]);
+      resolve(@[ mediaStreamId, tracks ]);
     }
     errorCallback:^ (NSString *errorType, NSString *errorMessage) {
-      errorCallback(@[ errorType, errorMessage ]);
+      reject(errorType, errorMessage, nil);
     }
     mediaStream:mediaStream];
 }
@@ -149,7 +149,7 @@ RCT_EXPORT_METHOD(getUserMedia:(NSDictionary *)constraints
          mediaStream:(RTCMediaStream *)mediaStream {
   // If mediaStream contains no audioTracks and the constraints request such a
   // track, then run an iteration of the getUserMedia() algorithm to obtain
-  // local audio content. 
+  // local audio content.
   if (mediaStream.audioTracks.count == 0) {
     // constraints.audio
     id audioConstraints = constraints[@"audio"];
@@ -165,7 +165,7 @@ RCT_EXPORT_METHOD(getUserMedia:(NSDictionary *)constraints
 
   // If mediaStream contains no videoTracks and the constraints request such a
   // track, then run an iteration of the getUserMedia() algorithm to obtain
-  // local video content. 
+  // local video content.
   if (mediaStream.videoTracks.count == 0) {
     // constraints.video
     id videoConstraints = constraints[@"video"];
@@ -307,7 +307,8 @@ RCT_EXPORT_METHOD(mediaStreamRelease:(nonnull NSString *)streamID)
   }
 }
 
-RCT_EXPORT_METHOD(mediaStreamTrackGetSources:(RCTResponseSenderBlock)callback) {
+RCT_EXPORT_METHOD(mediaStreamTrackGetSources:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject) {
   NSMutableArray *sources = [NSMutableArray array];
   NSArray *videoDevices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
   for (AVCaptureDevice *device in videoDevices) {
@@ -327,7 +328,7 @@ RCT_EXPORT_METHOD(mediaStreamTrackGetSources:(RCTResponseSenderBlock)callback) {
                          @"kind": @"audio",
                          }];
   }
-  callback(@[sources]);
+  resolve(@[sources]);
 }
 
 RCT_EXPORT_METHOD(mediaStreamTrackRelease:(nonnull NSString *)streamID : (nonnull NSString *)trackID)

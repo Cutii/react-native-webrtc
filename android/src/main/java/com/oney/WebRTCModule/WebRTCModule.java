@@ -19,6 +19,7 @@ import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableType;
+import com.facebook.react.bridge.Promise;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import java.util.ArrayList;
@@ -51,6 +52,12 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
     private static final int DEFAULT_WIDTH  = 1280;
     private static final int DEFAULT_HEIGHT = 720;
     private static final int DEFAULT_FPS    = 30;
+
+    // Error codes
+    private static final String WEBRTC_CREATE_OFFER_ERROR = "WEBRTC_CREATE_OFFER_ERROR";
+    private static final String WEBRTC_CREATE_ANSWER_ERROR = "WEBRTC_CREATE_ANSWER_ERROR";
+    private static final String WEBRTC_SET_LOCAL_DESCRIPTION_ERROR = "WEBRTC_SET_LOCAL_DESCRIPTION_ERROR";
+    private static final String WEBRTC_SET_REMOTE_DESCRIPTION_ERROR = "WEBRTC_SET_REMOTE_DESCRIPTION_ERROR";
 
     private final PeerConnectionFactory mFactory;
     private final SparseArray<PeerConnectionObserver> mPeerConnectionObservers;
@@ -481,17 +488,16 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void getUserMedia(ReadableMap constraints,
-                             Callback    successCallback,
-                             Callback    errorCallback) {
+    public void getUserMedia(ReadableMap constraints, Promise promise) {
         AudioTrack audioTrack = null;
         VideoTrack videoTrack = null;
         WritableArray tracks = Arguments.createArray();
+        WritableArray successResult = Arguments.createArray();
 
         // NOTE: we don't need videoConstraints for now since createVideoSource doesn't accept
         //   videoConstraints, we should extract resolution and pass to startCapture
 
-        // TODO: change getUserMedia constraints format to support new syntax 
+        // TODO: change getUserMedia constraints format to support new syntax
         //   constraint format seems changed, and there is no mandatory any more.
         //   and has a new sytax/attrs to specify resolution
         //   should change `parseConstraints()` according
@@ -521,24 +527,24 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
                 break;
             case Map:
                 video = constraints.getMap("video");
-                if (video.hasKey("mandatory") && 
+                if (video.hasKey("mandatory") &&
                         video.getType("mandatory") == ReadableType.Map) {
                     videoConstraintsManatory = video.getMap("mandatory");
                 }
 
                 // video resolution is mandatory
                 if (videoConstraintsManatory == null) {
-                    errorCallback.invoke(null, "video mandatory constraints not found");
+                    promise.reject(null, "video mandatory constraints not found");
                     return;
                 }
-                
+
                 //videoConstraints = parseConstraints(video);
                 sourceId = getSourceIdConstraint(video);
                 facingMode
                     = ReactBridgeUtil.getMapStrValue(video, "facingMode");
                 break;
             default:
-                errorCallback.invoke(null, "invalid type of video constraints");
+                promise.reject(null, "invalid type of video constraints");
                 return;
             }
 
@@ -617,7 +623,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
                     if (videoCapturer != null) {
                         removeVideoCapturer(trackId);
                     }
-                    errorCallback.invoke(/* type */ null, "Failed to obtain video");
+                    promise.reject(null, "Failed to obtain video");
                     return;
                 }
             }
@@ -673,7 +679,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
                 // algorithm specified by
                 // https://www.w3.org/TR/mediacapture-streams/#dom-mediadevices-getusermedia
                 // with respect to distinguishing the various causes of failure.
-                errorCallback.invoke(/* type */ null, "Failed to obtain audio");
+                promise.reject(/* type */ null, "Failed to obtain audio");
                 return;
             }
         }
@@ -690,7 +696,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
             // calling into the native counterpart and should have failed the
             // method invocation already (in the manner described above).
             // Anyway, repeat the logic here just in case.
-            errorCallback.invoke(
+            promise.reject(
                 "TypeError",
                 "constraints requests no media types");
             return;
@@ -703,7 +709,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
             // specified by
             // https://www.w3.org/TR/mediacapture-streams/#dom-mediadevices-getusermedia
             // with respect to distinguishing the various causes of failure.
-            errorCallback.invoke(
+            promise.reject(
                 /* type */ null,
                 "Failed to create new media stream");
             return;
@@ -717,10 +723,12 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
         Log.d(TAG, "mMediaStreamId: " + streamId);
         mMediaStreams.put(streamId, mediaStream);
 
-        successCallback.invoke(streamId, tracks);
+        successResult.pushString(streamId);
+        successResult.pushArray(tracks);
+        promise.resolve(successResult);
     }
     @ReactMethod
-    public void mediaStreamTrackGetSources(Callback callback){
+    public void mediaStreamTrackGetSources(Promise promise){
         WritableArray array = Arguments.createArray();
         String[] names = new String[Camera.getNumberOfCameras()];
 
@@ -738,7 +746,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
         audio.putString("kind", "audio");
 
         array.pushMap(audio);
-        callback.invoke(array);
+        promise.resolve(array);
     }
 
     @ReactMethod
@@ -988,14 +996,14 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
     public void peerConnectionCreateOffer(
             int id,
             ReadableMap constraints,
-            final Callback callback) {
+            final Promise promise) {
         PeerConnection peerConnection = getPeerConnection(id);
 
         if (peerConnection != null) {
             peerConnection.createOffer(new SdpObserver() {
                 @Override
                 public void onCreateFailure(String s) {
-                    callback.invoke(false, s);
+                    promise.reject(WEBRTC_CREATE_OFFER_ERROR, s);
                 }
 
                 @Override
@@ -1003,7 +1011,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
                     WritableMap params = Arguments.createMap();
                     params.putString("sdp", sdp.description);
                     params.putString("type", sdp.type.canonicalForm());
-                    callback.invoke(true, params);
+                    promise.resolve(params);
                 }
 
                 @Override
@@ -1014,7 +1022,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
             }, parseMediaConstraints(constraints));
         } else {
             Log.d(TAG, "peerConnectionCreateOffer() peerConnection is null");
-            callback.invoke(false, "peerConnection is null");
+            promise.reject(WEBRTC_CREATE_OFFER_ERROR, "peerConnection is null");
         }
     }
 
@@ -1022,14 +1030,14 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
     public void peerConnectionCreateAnswer(
             int id,
             ReadableMap constraints,
-            final Callback callback) {
+            final Promise promise) {
         PeerConnection peerConnection = getPeerConnection(id);
 
         if (peerConnection != null) {
             peerConnection.createAnswer(new SdpObserver() {
                 @Override
                 public void onCreateFailure(String s) {
-                    callback.invoke(false, s);
+                    promise.reject(WEBRTC_CREATE_ANSWER_ERROR, s);
                 }
 
                 @Override
@@ -1037,7 +1045,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
                     WritableMap params = Arguments.createMap();
                     params.putString("sdp", sdp.description);
                     params.putString("type", sdp.type.canonicalForm());
-                    callback.invoke(true, params);
+                    promise.resolve(params);
                 }
 
                 @Override
@@ -1048,12 +1056,12 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
             }, parseMediaConstraints(constraints));
         } else {
             Log.d(TAG, "peerConnectionCreateAnswer() peerConnection is null");
-            callback.invoke(false, "peerConnection is null");
+            promise.reject(WEBRTC_CREATE_ANSWER_ERROR, "peerConnection is null");
         }
     }
 
     @ReactMethod
-    public void peerConnectionSetLocalDescription(ReadableMap sdpMap, final int id, final Callback callback) {
+    public void peerConnectionSetLocalDescription(ReadableMap sdpMap, final int id, final Promise promise) {
         PeerConnection peerConnection = getPeerConnection(id);
 
         Log.d(TAG, "peerConnectionSetLocalDescription() start");
@@ -1070,7 +1078,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
 
                 @Override
                 public void onSetSuccess() {
-                    callback.invoke(true);
+                    promise.resolve(null);
                 }
 
                 @Override
@@ -1079,17 +1087,17 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
 
                 @Override
                 public void onSetFailure(String s) {
-                    callback.invoke(false, s);
+                    promise.reject(WEBRTC_SET_LOCAL_DESCRIPTION_ERROR, s);
                 }
             }, sdp);
         } else {
             Log.d(TAG, "peerConnectionSetLocalDescription() peerConnection is null");
-            callback.invoke(false, "peerConnection is null");
+            promise.reject(WEBRTC_SET_LOCAL_DESCRIPTION_ERROR, "peerConnection is null");
         }
         Log.d(TAG, "peerConnectionSetLocalDescription() end");
     }
     @ReactMethod
-    public void peerConnectionSetRemoteDescription(final ReadableMap sdpMap, final int id, final Callback callback) {
+    public void peerConnectionSetRemoteDescription(final ReadableMap sdpMap, final int id, final Promise promise) {
         PeerConnection peerConnection = getPeerConnection(id);
         // final String d = sdpMap.getString("type");
 
@@ -1107,7 +1115,7 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
 
                 @Override
                 public void onSetSuccess() {
-                    callback.invoke(true);
+                    promise.resolve(null);
                 }
 
                 @Override
@@ -1116,17 +1124,17 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
 
                 @Override
                 public void onSetFailure(String s) {
-                    callback.invoke(false, s);
+                    promise.reject(WEBRTC_SET_REMOTE_DESCRIPTION_ERROR, s);
                 }
             }, sdp);
         } else {
             Log.d(TAG, "peerConnectionSetRemoteDescription() peerConnection is null");
-            callback.invoke(false, "peerConnection is null");
+            promise.reject(WEBRTC_SET_REMOTE_DESCRIPTION_ERROR, "peerConnection is null");
         }
         Log.d(TAG, "peerConnectionSetRemoteDescription() end");
     }
     @ReactMethod
-    public void peerConnectionAddICECandidate(ReadableMap candidateMap, final int id, final Callback callback) {
+    public void peerConnectionAddICECandidate(ReadableMap candidateMap, final int id, final Promise promise) {
         boolean result = false;
         PeerConnection peerConnection = getPeerConnection(id);
         Log.d(TAG, "peerConnectionAddICECandidate() start");
@@ -1140,17 +1148,17 @@ public class WebRTCModule extends ReactContextBaseJavaModule {
         } else {
             Log.d(TAG, "peerConnectionAddICECandidate() peerConnection is null");
         }
-        callback.invoke(result);
+        promise.resolve(result);
         Log.d(TAG, "peerConnectionAddICECandidate() end");
     }
 
     @ReactMethod
-    public void peerConnectionGetStats(String trackId, int id, Callback cb) {
+    public void peerConnectionGetStats(String trackId, int id, final Promise promise) {
         PeerConnectionObserver pco = mPeerConnectionObservers.get(id);
         if (pco == null || pco.getPeerConnection() == null) {
             Log.d(TAG, "peerConnectionGetStats() peerConnection is null");
         } else {
-            pco.getStats(trackId, cb);
+            pco.getStats(trackId, promise);
         }
     }
 
