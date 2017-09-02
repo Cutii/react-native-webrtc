@@ -253,9 +253,9 @@ RCT_EXPORT_METHOD(peerConnectionGetStats:(nonnull NSString *)trackID
       || (track = self.localTracks[trackID])
       || (track = peerConnection.remoteTracks[trackID])) {
     [peerConnection statsForTrack:track
-                 statsOutputLevel:RTCStatsOutputLevelStandard
+                statsOutputLevel:RTCStatsOutputLevelStandard
                 completionHandler:^(NSArray<RTCLegacyStatsReport *> *stats) {
-                  callback(@[[self statsToJSON:stats]]);
+                  resolve(@[[self statsToJSON:stats]]);
                 }];
   }
 }
